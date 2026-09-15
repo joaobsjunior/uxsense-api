@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\PushNotification;
 use App\Models\Scheduler;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Log;
 
 class PushNotificationController extends Controller
 {
@@ -33,7 +34,11 @@ class PushNotificationController extends Controller
 
     private function sendPush($registration_ids, Scheduler $schuduler)
     {
-        $api_key = '<api_key>';
+        $api_key = (string) config('services.fcm.key', '');
+        if ($api_key === '') {
+            Log::warning('FCM_SERVER_KEY is not configured; push notification skipped.');
+            return null;
+        }
         $data = array(
             'registration_ids' => $registration_ids,
             'priority' => 'high',
@@ -47,8 +52,9 @@ class PushNotificationController extends Controller
             'restricted_package_name' => '',
         );
         $data_string = json_encode($data);
-        $ch = curl_init('https://fcm.googleapis.com/fcm/send');
+        $ch = curl_init((string) config('services.fcm.endpoint', 'https://fcm.googleapis.com/fcm/send'));
         curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST');
+        curl_setopt($ch, CURLOPT_TIMEOUT, 15);
         curl_setopt($ch, CURLOPT_POSTFIELDS, $data_string);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_HTTPHEADER, array(

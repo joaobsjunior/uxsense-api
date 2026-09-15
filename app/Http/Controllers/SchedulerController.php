@@ -19,7 +19,7 @@ class SchedulerController extends Controller {
         $data = $request->input();
         $params = [];
         foreach ($data as $key => $value) {
-            if (trim($data[$key]) != "") {
+            if (is_scalar($value) && trim((string) $value) != "") {
                 $params[$key] = $data[$key];
             }
         }
@@ -106,10 +106,10 @@ class SchedulerController extends Controller {
         return $response;
     }
 
-    public function pendentByClient() {
-        $data = SchedulerBO::getSchedulerPendentByClient();
+    public function pendentByClient(Request $request) {
+        $data = SchedulerBO::getSchedulerPendentByClient($request->attributes->get('device')->idclient);
         if ($data) {
-            return new Response(SchedulerBO::getSchedulerPendentByClient()->getData(), 200);
+            return new Response($data->getData(), 200);
         }
         return new Response("", 200);
     }

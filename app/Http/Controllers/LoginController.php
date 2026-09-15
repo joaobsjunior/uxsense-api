@@ -15,7 +15,7 @@ class LoginController extends Controller {
         $response = new Response([], 400);
         $isIssetAdmin = isset($array['login']) && isset($array['password']);
         $isNotEmptyAdmin = !empty($array['login']) && !empty($array['password']);
-        if ($isIssetAdmin && $isNotEmptyAdmin) {
+        if ($isIssetAdmin && $isNotEmptyAdmin && is_string($array['login']) && is_string($array['password'])) {
             $user = new User($array);
             $data = UserBO::authenticate($user);
             if ($data) {
@@ -26,23 +26,23 @@ class LoginController extends Controller {
                 }
                 $response = new Response($return);
             } else {
-                $response = new Response($response, 203);
+                $response = new Response([], 203);
             }
         }
         return $response;
     }
 
     public function postLostPassword(Request $request) {
-        if($request->filled('login')){
-            $data = UserBO::lostPassword($request['login']);
+        $data = [];
+        if ($request->filled('login') && is_string($request->input('login'))) {
+            $data = UserBO::lostPassword($request->input('login'));
         }
         return new Response($data);
     }
 
     public function postFirstAccess(Request $request) {
-        $data = $request->input();
-        $token = $data['token'];
-        $password = $data['password'];
+        $token = $request->input('token');
+        $password = $request->input('password');
         $return = UserBO::firstAccess($token, $password);
         if ($return) {
             return new Response("", 200);
@@ -52,11 +52,21 @@ class LoginController extends Controller {
     }
 
     public function logout(Request $request) {
+        $administrator = $request->attributes->get('administrator');
+        if ($administrator) {
+            // Invalidate the API token server side.
+            \Illuminate\Support\Facades\DB::table('administrator')
+                ->where('idadministrator', $administrator->idadministrator)
+                ->update(['token' => null]);
+        }
         return new Response([]);
     }
 
     public function inviteUser(Request $request) {
         $params = $request->input();
+        if (!isset($params['group_id']) || !isset($params['login']) || !is_string($params['login']) || trim($params['login']) === '') {
+            return new Response(['message' => 'login and group_id are required'], 400);
+        }
         $user = new User($params);
         $user = UserBO::invite($user, $params['group_id']);
         if ($user["created"]) {

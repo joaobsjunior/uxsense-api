@@ -1,19 +1,18 @@
 <?php
 
+use Illuminate\Support\Facades\Route;
+
 /*
 |--------------------------------------------------------------------------
 | Web Routes
 |--------------------------------------------------------------------------
 |
-| Here is where you can register web routes for your application. These
-| routes are loaded by the RouteServiceProvider within a group which
-| contains the "web" middleware group. Now create something great!
+| Only a landing page is served over the "web" middleware group. The former
+| "/info" route that exposed phpinfo() was removed: it disclosed the server
+| configuration, loaded extensions, paths and environment to anyone.
 |
 */
 
 Route::get('/', function () {
     return view('welcome');
-});
-Route::get('/info', function () {
-    return view('phpinfo');
 });

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Scheduler;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -41,10 +42,13 @@ class PushNotification
 
     public static function getScheduler()
     {
-        date_default_timezone_set('America/Bahia');
         Log::info('PushNotification::getScheduler()');
-        $data = DB::select('SELECT * FROM scheduler WHERE scheduler.sent = 0 AND scheduler.date = DATE(NOW()) AND scheduler.time <= time(NOW())');
-        Log::info($data);
+        $now = Carbon::now();
+        $data = DB::table('scheduler')
+            ->where('sent', 0)
+            ->where('date', $now->toDateString())
+            ->where('time', '<=', $now->toTimeString())
+            ->get();
         $return = [];
         $return['schedulers'] = [];
         foreach ($data as $value) {
@@ -57,7 +61,6 @@ class PushNotification
                 'technique_id' => $value->capture_technique_id,
             ]));
         }
-        Log::info($return);
         return $return;
     }
 

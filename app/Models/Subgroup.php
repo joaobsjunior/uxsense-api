@@ -41,7 +41,7 @@ class Subgroup {
             'id' => $this->getId(),
             'name' => $this->getName(),
             'complement' => $this->getComplement(),
-            'group' => $this->getGroup()->getData(),
+            'group' => $this->getGroup() ? $this->getGroup()->getData() : null,
             'group_id' => $this->getGroupId(),
         ];
     }

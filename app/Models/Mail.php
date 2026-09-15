@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use PHPMailer\PHPMailer\Exception as MailerException;
 use PHPMailer\PHPMailer\PHPMailer;
 
 class Mail
@@ -14,25 +15,42 @@ class Mail
         $this->mail = new PHPMailer(true);
     }
 
+    /**
+     * SMTP settings come from config/mail.php (MAIL_* environment variables).
+     * Credentials used to be hard coded here.
+     */
     private function setConfig()
     {
-        //$this->mail->SMTPDebug = 2;
+        $smtp = (array) config('mail.mailers.smtp', []);
         $this->mail->isSMTP();
-        $this->mail->SMTPAuth = true;
-        $this->mail->SMTPSecure = 'ssl';
-        $this->mail->Host = 'smtp.uxsense.com.br';
-        $this->mail->Port = 465;
-        $this->mail->Username = '';
-        $this->mail->Password = '';
-        $this->mail->CharSet = 'utf-8';
-        $this->mail->setFrom('no-replay@uxsense.com.br', 'UXSense');
+        $this->mail->SMTPAuth = !empty($smtp['username']);
+        $encryption = $smtp['encryption'] ?? 'tls';
+        $this->mail->SMTPSecure = $encryption === 'ssl' ? PHPMailer::ENCRYPTION_SMTPS : PHPMailer::ENCRYPTION_STARTTLS;
+        $this->mail->Host = (string) ($smtp['host'] ?? 'localhost');
+        $this->mail->Port = (int) ($smtp['port'] ?? 587);
+        $this->mail->Username = (string) ($smtp['username'] ?? '');
+        $this->mail->Password = (string) ($smtp['password'] ?? '');
+        $this->mail->Timeout = 15;
+        $this->mail->CharSet = PHPMailer::CHARSET_UTF8;
+        $this->mail->setFrom(
+            (string) config('mail.from.address', 'no-reply@uxsense.com.br'),
+            (string) config('mail.from.name', 'UXSense')
+        );
         $this->mail->isHTML(true);
     }
 
     public function sendCodeChangePassword($email, $token, $name, $subject)
     {
-        $this->setConfig();
-        $this->mail->addAddress($email, $name);
+        try {
+            $this->setConfig();
+            $this->mail->addAddress($email, (string) $name);
+        } catch (MailerException $e) {
+            return Mail::returnData(false, true, $this->mail, false);
+        }
+        // User supplied values are escaped: the recipient name comes from the
+        // request and could otherwise inject HTML into the message.
+        $name = e((string) $name);
+        $token = e((string) $token);
         ob_start();
         ?>
         <table border="0" cellpadding="5" cellspacing="0" align="center" style="width: 100%;background-color:#e6e6e6;padding:25px;font-size:14px;font-family:'Trebuchet MS', Helvetica, sans-serif">
@@ -65,7 +83,7 @@ class Mail
 
         </table>
         <?php
-$html = ob_get_clean();
+        $html = ob_get_clean();
         $this->mail->Body = $html;
         $send = $this->send($subject);
         return $send;
@@ -73,8 +91,14 @@ $html = ob_get_clean();
 
     public function sendLostPassword($register, $password, $name, $subject)
     {
-        $this->setConfig();
-        $this->mail->addAddress($register, $name);
+        try {
+            $this->setConfig();
+            $this->mail->addAddress($register, (string) $name);
+        } catch (MailerException $e) {
+            return Mail::returnData(false, true, $this->mail, false);
+        }
+        $name = e((string) $name);
+        $password = e((string) $password);
         ob_start();
         ?>
         <table border="0" cellpadding="5" cellspacing="0" align="center" style="width: 100%;background-color:#e6e6e6;padding:25px;font-size:14px;font-family:'Trebuchet MS', Helvetica, sans-serif">
@@ -103,7 +127,7 @@ $html = ob_get_clean();
 
         </table>
         <?php
-$html = ob_get_clean();
+        $html = ob_get_clean();
         $this->mail->Body = $html;
         $send = $this->send($subject);
         return $send;
@@ -112,7 +136,11 @@ $html = ob_get_clean();
     private function send($subject)
     {
         $this->mail->Subject = '[UXSense] - ' . $subject;
-        $send = $this->mail->send();
+        try {
+            $send = $this->mail->send();
+        } catch (MailerException $e) {
+            $send = false;
+        }
         if ($send) {
             return Mail::returnData(true, true, $this->mail, false);
         } else {
@@ -120,7 +148,7 @@ $html = ob_get_clean();
         }
     }
 
-    public static function returnData($sent = true, $created = true, $mail, $show_message = false)
+    public static function returnData($sent, $created, $mail, $show_message = false)
     {
         $message = "";
         $address = [];

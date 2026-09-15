@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class SchedulerBO {
@@ -120,19 +121,14 @@ class SchedulerBO {
     }
 
     public static function listAll($data) {
-
-	$string = '
-	SELECT * FROM scheduler
-	WHERE sent = 0
-	';
-        if (isset($data['question_id'])) {
-            $string .= 'AND idquestion = '.$data['question_id'];
+        $query = DB::table('scheduler')->where('sent', 0);
+        if (isset($data['question_id']) && $data['question_id'] !== '') {
+            $query->where('idquestion', $data['question_id']);
         }
-        $string .= '
-        ORDER BY date '.(isset($data['date']) ? $data['date'] : 'asc').',
-	time '.(isset($data['date']) ? $data['date'] : 'asc').'
-        ';
-        $request = DB::select($string);
+        // Only the two SQL sort directions are accepted (this value used to be
+        // concatenated straight into the ORDER BY clause).
+        $direction = strtolower((string) ($data['date'] ?? 'asc')) === 'desc' ? 'desc' : 'asc';
+        $request = $query->orderBy('date', $direction)->orderBy('time', $direction)->get();
         $return = [];
         $return['schedulers'] = [];
         foreach ($request as $value) {
@@ -149,10 +145,7 @@ class SchedulerBO {
     }
 
     public static function get($id) {
-	$data = collect(DB::select('
-	SELECT * FROM scheduler
-	WHERE idscheduler = '.$id.'
-	'))->first();
+        $data = DB::table('scheduler')->where('idscheduler', $id)->first();
         if ($data) {
             $scheduler = new Scheduler([
                 'id' => $data->idscheduler,
@@ -167,19 +160,27 @@ class SchedulerBO {
         return false;
     }
 
-    public static function getSchedulerPendentByClient() {
-        date_default_timezone_set('America/Bahia');
-         $data = collect(DB::select('
-		SELECT * FROM scheduler
-		JOIN team_client ON team_client.idteam = scheduler.idteam
-		WHERE team_client.idclient = '.$GLOBALS["device"]->idclient.'
-		AND scheduler.idscheduler
-		NOT IN (SELECT answer.idscheduler FROM answer WHERE answer.idclient = '.$GLOBALS["device"]->idclient.')
-		AND scheduler.date = DATE(NOW())
-		AND scheduler.time <= TIME(NOW())
-		ORDER BY scheduler.time ASC
-		LIMIT 1;
-	  '))->first();
+    public static function getSchedulerPendentByClient($idclient = null) {
+        if ($idclient === null) {
+            $idclient = $GLOBALS["device"]->idclient ?? null;
+        }
+        if ($idclient === null) {
+            return false;
+        }
+        $now = Carbon::now();
+        $data = DB::table('scheduler')
+                ->select('scheduler.*')
+                ->join('team_client', 'team_client.idteam', '=', 'scheduler.idteam')
+                ->where('team_client.idclient', $idclient)
+                ->whereNotIn('scheduler.idscheduler', function ($query) use ($idclient) {
+                    $query->select('answer.idscheduler')
+                        ->from('answer')
+                        ->where('answer.idclient', $idclient);
+                })
+                ->where('scheduler.date', $now->toDateString())
+                ->where('scheduler.time', '<=', $now->toTimeString())
+                ->orderBy('scheduler.time', 'asc')
+                ->first();
         if ($data) {
             $scheduler = new Scheduler([
                 'id' => $data->idscheduler,

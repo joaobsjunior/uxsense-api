@@ -6,6 +6,8 @@
  * and open the template in the editor.
  */
 
+namespace App\Enum;
+
 abstract class MessageEnum {
     /* TITLES */
     const titleErrorConsulta = 'Erro na consulta SQL';

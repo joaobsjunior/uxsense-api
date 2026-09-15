@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class DeviceBO {
 
@@ -119,22 +120,34 @@ class DeviceBO {
         return false;
     }
 
+    /**
+     * Send a data notification to the given FCM registration ids.
+     *
+     * The server key comes from FCM_SERVER_KEY (config/services.php); it used
+     * to be hard coded in this file.
+     *
+     * @return array|false decoded FCM response, or false on failure
+     */
     public static function sendNotification($registration_ids = [], $message = []) {
-        $authToken = 'AIzaSyBwmC1IwyGgAyQgxJGsSKrdKUDWilkFh4w';
+        $authToken = (string) config('services.fcm.key', '');
+        if ($authToken === '' || count($registration_ids) === 0) {
+            return false;
+        }
         $postData = array(
             'notification' => array(
-                'title' => $message['title'],
-                'text' => $message['text']
+                'title' => $message['title'] ?? '',
+                'text' => $message['text'] ?? ''
             ),
             'data' => array(
-                'id' => $message['id']
+                'id' => $message['id'] ?? null
             ),
-            'registration_ids' => $registration_ids
+            'registration_ids' => array_values($registration_ids)
         );
-        $ch = curl_init('https://fcm.googleapis.com/fcm/send');
+        $ch = curl_init((string) config('services.fcm.endpoint', 'https://fcm.googleapis.com/fcm/send'));
         curl_setopt_array($ch, array(
             CURLOPT_POST => TRUE,
             CURLOPT_RETURNTRANSFER => TRUE,
+            CURLOPT_TIMEOUT => 15,
             CURLOPT_HTTPHEADER => array(
                 'Authorization: key=' . $authToken,
                 'Content-Type: application/json'
@@ -143,10 +156,12 @@ class DeviceBO {
         ));
         $response = curl_exec($ch);
         if ($response === FALSE) {
-            die(curl_error($ch));
+            Log::error('FCM request failed: ' . curl_error($ch));
+            curl_close($ch);
+            return false;
         }
-        $responseData = json_decode($response, TRUE);
-        echo $responseData;
+        curl_close($ch);
+        return json_decode($response, TRUE);
     }
 
 }
