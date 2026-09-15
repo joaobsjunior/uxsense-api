@@ -54,8 +54,9 @@ class TeamController extends Controller {
         $params = $request->input();
         if (isset($params['team'])) {
             $data = TeamBO::get($id);
-            $data = $data->getData();
-            $response = new Response($data, 200);
+            if ($data) {
+                $response = new Response($data->getData(), 200);
+            }
         } else if (isset($params['subgroup'])) {
             $data = TeamBO::listAllofSubgroup($id);
             $size = count($data['teams']);
@@ -89,9 +90,14 @@ class TeamController extends Controller {
         return $response;
     }
 
+    /**
+     * Join the authenticated device's client to a team. The client id sent in
+     * the payload is ignored so a device cannot enrol other clients.
+     */
     public function regiterForClient(Request $request) {
         $response = new Response([], 400);
         $data = $request->input();
+        $data['client'] = $request->attributes->get('device')->idclient;
         if (isset($data['client']) && isset($data['team'])) {
             $return = TeamBO::registerTeamClient($data['team'], $data['client']);
             if($return){
@@ -104,6 +110,7 @@ class TeamController extends Controller {
     public function destroyForClient(Request $request) {
         $response = new Response([], 400);
         $data = $request->input();
+        $data['client'] = $request->attributes->get('device')->idclient;
         if (isset($data['client']) && isset($data['team'])) {
             $return = TeamBO::deleteTeamClient($data['team'], $data['client']);
             if($return){

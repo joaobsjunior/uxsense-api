@@ -63,10 +63,6 @@ class Unit {
         $this->longitude = $longitude;
     }
 
-    public function setPassword($password) {
-        $this->password = sha1(md5($password));
-    }
-
     public function setId($id) {
         $this->id = $id;
     }

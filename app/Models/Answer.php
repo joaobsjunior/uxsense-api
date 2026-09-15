@@ -74,11 +74,11 @@ class Answer {
             "date" => $this->getDate(),
             "time" => $this->getTime(),
             "answer" => $this->getAnswer(),
-            "client" => $this->getClient()->getData(),
-            "scheduler" => $this->getScheduler()->getData(),
+            "client" => $this->getClient() ? $this->getClient()->getData() : null,
+            "scheduler" => $this->getScheduler() ? $this->getScheduler()->getData() : null,
             "latitude" => $this->getLatitude(),
             "longitude" => $this->getLongitude(),
-            "technique" => $this->getTechnique()->getData(),
+            "technique" => $this->getTechnique() ? $this->getTechnique()->getData() : null,
         ];
     }
 

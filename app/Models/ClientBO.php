@@ -7,78 +7,78 @@ use Illuminate\Support\Facades\DB;
 class ClientBO {
 
     public static function authenticate(Client $client, Device $device) {
-        $_user = DB::table('client')
-                ->where([
-                    ['register', $client->getRegister()],
-                    ['password', $client->getPassword()],
-                ])
-                ->first();
-        if (!$_user) {
-            $_user = DB::table('client')
-                    ->where([
-                        ['register', $client->getRegister()],
-                        ['passwordrecovery', $client->getPassword()],
-                    ])
-                    ->first();
-            if ($_user) {
-                DB::table('client')
-                        ->where([
-                            ['register', $client->getRegister()],
-                        ])->update(['password' => $_user->passwordrecovery, 'passwordrecovery' => null]);
-                $_user = DB::table('client')
-                        ->where([
-                            ['register', $client->getRegister()],
-                            ['password', $client->getPassword()],
-                        ])
-                        ->first();
-            }
+        $plain = $client->getPlainPassword();
+        $_user = DB::table('client')->where('register', $client->getRegister())->first();
+        if (!$_user || $plain === null || $plain === '') {
+            return false;
         }
-        if ($_user) {
-            $client->setId($_user->idclient);
-            $client->setName($_user->name);
-            $client->setEmail($_user->email);
-            $client->setRegister($_user->register);
-            $client->setSex($_user->sex);
-            $client->setDatebirth($_user->datebirth);
-            $client->setPassword($_user->password, true);
-            $device->setClientId($_user->idclient);
-            $device->setToken(uniqid());
-            $_device = DeviceBO::getByUuid($device->getUuid());
-            if ($_device) {
-                $diff = array_diff_assoc($device->getDataDB(), $_device->getDataDB());
-                foreach ($diff as $key => $value) {
-                    if (!$value) {
-                        unset($diff[$key]);
-                    }
+
+        $authenticated = false;
+        $update = [];
+        if (Helpers::verifyPassword($plain, $_user->password)) {
+            $authenticated = true;
+            if (Helpers::passwordNeedsRehash($_user->password)) {
+                // Transparently upgrade legacy sha1(md5()) hashes to bcrypt.
+                $update['password'] = Helpers::hashPassword($plain);
+            }
+        } elseif (isset($_user->passwordrecovery) && Helpers::verifyPassword($plain, $_user->passwordrecovery)) {
+            // Temporary password sent by e-mail: it becomes the new password.
+            $authenticated = true;
+            $update['password'] = Helpers::hashPassword($plain);
+            $update['passwordrecovery'] = null;
+        }
+        if (!$authenticated) {
+            return false;
+        }
+        if (count($update) > 0) {
+            DB::table('client')->where('idclient', $_user->idclient)->update($update);
+            $_user = DB::table('client')->where('idclient', $_user->idclient)->first();
+        }
+
+        $client->setId($_user->idclient);
+        $client->setName($_user->name);
+        $client->setEmail($_user->email);
+        $client->setRegister($_user->register);
+        $client->setSex($_user->sex);
+        $client->setDatebirth($_user->datebirth);
+        $client->setPassword($_user->password, true);
+        $device->setClientId($_user->idclient);
+        $device->setToken(Helpers::token(32));
+        $_device = DeviceBO::getByUuid($device->getUuid());
+        if ($_device) {
+            $diff = array_diff_assoc($device->getDataDB(), $_device->getDataDB());
+            foreach ($diff as $key => $value) {
+                if (!$value) {
+                    unset($diff[$key]);
                 }
-                if (count($diff) > 0) {
-                    $device = DeviceBO::change($_device->getId(), $diff);
-                }
-                $group = GroupBO::getByClientID($client->getId());
-                if ($group) {
-                    $group = $group->getData();
-                }
+            }
+            if (count($diff) > 0) {
+                $device = DeviceBO::change($_device->getId(), $diff);
+            }
+            $group = GroupBO::getByClientID($client->getId());
+            if ($group) {
+                $group = $group->getData();
+            }
+            return array(
+                "client" => $client->getData(),
+                "device" => $device->getData(),
+                "group" => $group,
+            );
+        } else {
+            $group = GroupBO::getByClientID($client->getId());
+            if ($group) {
+                $group = $group->getData();
+            }
+            if ($device->getPlatform() == 'iOS') {
+                DeviceBO::deleteAllByClientIDAndPlatform($device->getClientId(), 'iOS');
+            }
+            $device = DeviceBO::register($device);
+            if ($device) {
                 return array(
                     "client" => $client->getData(),
                     "device" => $device->getData(),
                     "group" => $group,
                 );
-            } else {
-                $group = GroupBO::getByClientID($client->getId());
-                if ($group) {
-                    $group = $group->getData();
-                }
-                if ($device->getPlatform() == 'iOS') {
-                    DeviceBO::deleteAllByClientIDAndPlatform($device->getClientId(), 'iOS');
-                }
-                $device = DeviceBO::register($device);
-                if ($device) {
-                    return array(
-                        "client" => $client->getData(),
-                        "device" => $device->getData(),
-                        "group" => $group,
-                    );
-                }
             }
         }
         return false;
@@ -114,20 +114,24 @@ class ClientBO {
 
     public static function lostPassword($email) {
         $tempPassword = Helpers::rand_passwd();
-        $query = DB::table('client')->where('email', $email);
-        $callback = $query->update(["passwordrecovery" => sha1(md5($tempPassword))]);
-        $data = $query->first();
+        $data = DB::table('client')->where('email', $email)->first();
         $response = false;
-        if ($callback && $data) {
-            $response = new Client([
-                'id' => $data->idclient,
-                'name' => $data->name,
-                'email' => $data->email,
-                'register' => $data->register,
-                'sex' => $data->sex,
-                'password' => $tempPassword,
-                'datebirth' => $data->datebirth,
-                    ], true);
+        if ($data) {
+            $callback = DB::table('client')
+                    ->where('idclient', $data->idclient)
+                    ->update(["passwordrecovery" => Helpers::hashPassword($tempPassword)]);
+            if ($callback) {
+                $response = new Client([
+                    'id' => $data->idclient,
+                    'name' => $data->name,
+                    'email' => $data->email,
+                    'register' => $data->register,
+                    'sex' => $data->sex,
+                    'datebirth' => $data->datebirth,
+                        ], true);
+                // The plain temporary password is only kept in memory so it can be e-mailed.
+                $response->setPassword($tempPassword, true);
+            }
         }
         return $response;
     }
@@ -141,13 +145,13 @@ class ClientBO {
 
         foreach ($data as $value) {
             $return['clients'][] = new Client([
-                'id' => $data->idclient,
-                'name' => $data->name,
-                'email' => $data->email,
-                'register' => $data->register,
-                'sex' => $data->sex,
-                'password' => $data->password,
-                'datebirth' => $data->datebirth,
+                'id' => $value->idclient,
+                'name' => $value->name,
+                'email' => $value->email,
+                'register' => $value->register,
+                'sex' => $value->sex,
+                'password' => $value->password,
+                'datebirth' => $value->datebirth,
                     ], true);
         }
         return $return;

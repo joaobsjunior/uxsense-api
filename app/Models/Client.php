@@ -4,16 +4,20 @@ namespace App\Models;
 
 class Client {
 
-    private $id, $name, $register, $password, $sex, $datebirth, $token, $email;
+    private $id, $name, $register, $password, $sex, $datebirth, $token, $email, $plainPassword;
 
+    /**
+     * @param array $data
+     * @param bool  $isCrypt  true when $data['password'] already is a stored hash
+     */
     public function __construct($data = [], $isCrypt = false) {
-        $this->id = @$data['id'];
-        $this->name = @$data['name'];
-        $this->email = @$data['email'];
-        $this->register = @$data['register'];
-        $this->password = (!$isCrypt) ? sha1(md5(@$data['password'])) : @$data['password'];
-        $this->sex = @$data['sex'];
-        $this->datebirth = @$data['datebirth'];
+        $this->id = $data['id'] ?? null;
+        $this->name = $data['name'] ?? null;
+        $this->email = $data['email'] ?? null;
+        $this->register = $data['register'] ?? null;
+        $this->sex = $data['sex'] ?? null;
+        $this->datebirth = $data['datebirth'] ?? null;
+        $this->setPassword($data['password'] ?? null, $isCrypt);
     }
 
     /* GETS */
@@ -34,8 +38,18 @@ class Client {
         return $this->register;
     }
 
+    /**
+     * The stored (hashed) password.
+     */
     public function getPassword() {
         return $this->password;
+    }
+
+    /**
+     * The plain text password supplied by the request, if any.
+     */
+    public function getPlainPassword() {
+        return $this->plainPassword;
     }
 
     public function getSex() {
@@ -94,7 +108,16 @@ class Client {
     }
 
     public function setPassword($password, $isCrypt = false) {
-        $this->password = (!$isCrypt) ? sha1(md5($password)) : $password;
+        if ($isCrypt) {
+            $this->password = $password;
+            $this->plainPassword = null;
+        } elseif ($password === null || $password === '') {
+            $this->password = null;
+            $this->plainPassword = null;
+        } else {
+            $this->plainPassword = (string) $password;
+            $this->password = Helpers::hashPassword($password);
+        }
     }
 
     public function setSex($sex) {

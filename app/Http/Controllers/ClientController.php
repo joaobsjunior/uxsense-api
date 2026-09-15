@@ -8,31 +8,44 @@ use App\Models\Client;
 use App\Models\ClientBO;
 use App\Models\Device;
 use App\Models\DeviceBO;
+use App\Models\Helpers;
 use App\Models\Mail;
 
 class ClientController extends Controller {
 
+    /**
+     * Update the authenticated client's profile (and optionally its password).
+     */
     public function postIndex(Request $request) {
         $array = $request->input();
         $response = new Response([], 400);
         $client = new Client($array);
-        if (isset($GLOBALS["device"])) {
-            $client->setId($GLOBALS["device"]->idclient);
+        $device = $request->attributes->get('device');
+        if ($device) {
+            $client->setId($device->idclient);
             $client_old = ClientBO::get($client->getId());
-            if ($client_old->getPassword() === $client->getPassword() && isset($array['newpassword']) && $array['newpassword'] != "") {
+            if (!$client_old) {
+                return $response;
+            }
+            $wantsNewPassword = isset($array['newpassword']) && is_string($array['newpassword']) && $array['newpassword'] !== "";
+            if ($wantsNewPassword) {
+                // The current password must be verified before it can be changed.
+                if (!Helpers::verifyPassword($client->getPlainPassword(), $client_old->getPassword())) {
+                    return new Response(['message' => 'Invalid current password'], 403);
+                }
                 $client->setPassword($array['newpassword']);
                 $diff = array_diff_assoc($client->getDataDiff(true), $client_old->getDataDiff(true));
             } else {
                 $diff = array_diff_assoc($client->getDataDiff(), $client_old->getDataDiff());
             }
             foreach ($diff as $key => $value) {
-                if ($value == "") {
+                if ($value === null || $value === "") {
                     unset($diff[$key]);
                 }
             }
-            $new_client = ClientBO::change($client->getId(), $diff);
+            $new_client = count($diff) > 0 ? ClientBO::change($client->getId(), $diff) : $client_old;
             if ($new_client) {
-                $response = new Response($client->getData());
+                $response = new Response($new_client->getData());
             }
         }
         return $response;
@@ -42,10 +55,13 @@ class ClientController extends Controller {
         $array = $request->input();
         $response = new Response([], 400);
         $isIsset = isset($array['name']) && isset($array['email']) && isset($array['register']) && isset($array['password']);
+        if (!$isIsset) {
+            return $response;
+        }
         $isNotEmpty = "" !== ($array['name']) && "" !== ($array['email']) && "" !== ($array['register']) && "" !== ($array['password']);
-        $client = new Client($array);
-        $device = new Device($array);
-        if ($isIsset && $isNotEmpty) {
+        if ($isNotEmpty && is_string($array['password'])) {
+            $client = new Client($array);
+            $device = new Device($array);
             $client = ClientBO::register($client, $device);
             if ($client) {
                 $response = new Response($client->getData());
@@ -58,7 +74,7 @@ class ClientController extends Controller {
         $array = $request->input();
         $response = new Response([], 400);
         $client = new Client($array);
-        if ($client->getEmail()) {
+        if ($client->getEmail() && is_string($client->getEmail())) {
             $data = ClientBO::lostPassword($client->getEmail());
             if ($data) {
                 $email = new Mail();
@@ -69,10 +85,16 @@ class ClientController extends Controller {
         return $response;
     }
 
+    /**
+     * Return the profile of the client that owns the authenticated device.
+     *
+     * The client id used to be taken from a request header, which let any
+     * authenticated device read any other client's data.
+     */
     public function getIndex(Request $request) {
-        $array = $request->input();
         $response = new Response([], 400);
-        $client = ClientBO::get($request->header('user_id'));
+        $device = $request->attributes->get('device');
+        $client = $device ? ClientBO::get($device->idclient) : false;
         if ($client) {
             $response = new Response($client->getData());
         }
@@ -84,7 +106,7 @@ class ClientController extends Controller {
         $array = $request->input();
         $client = new Client($array);
         $device = new Device($array);
-        if ($client->getPassword() && $client->getRegister() && $device->getUuid()) {
+        if ($client->getPlainPassword() && $client->getRegister() && $device->getUuid()) {
             $data = ClientBO::authenticate($client, $device);
             if ($data) {
                 $response = new Response($data);
@@ -97,11 +119,11 @@ class ClientController extends Controller {
 
     public function updateRegistration(Request $request) {
         $response = new Response([], 400);
-        $device_id = $request->header('GSX-DEVICE');
+        $device_id = $request->attributes->get('device')->iddevice;
         $array = $request->input();
         $device_old = DeviceBO::get($device_id);
-        $device = clone $device_old;
-        if ($device) {
+        if ($device_old && isset($array['registration_id'])) {
+            $device = clone $device_old;
             $device->setRegistratorId($array['registration_id']);
             $diff = array_diff_assoc($device->getDataDB(), $device_old->getDataDB());
             if (count($diff) != 0) {
@@ -116,14 +138,15 @@ class ClientController extends Controller {
 
     public function logout(Request $request) {
         $response = new Response([], 400);
-        $device = DeviceBO::get($request->header('GSX-DEVICE'));
-        $device_old = clone $device;
+        $device = DeviceBO::get($request->attributes->get('device')->iddevice);
         if ($device) {
+            $device_old = clone $device;
             $device->setToken(null);
             $device->setRegistratorId(null);
             $diff = array_diff_assoc($device->getDataDB(), $device_old->getDataDB());
             if (count($diff) > 0) {
-                $device = DeviceBO::change($device->getId(), $diff);
+                DeviceBO::change($device->getId(), $diff);
+                $device = DeviceBO::get($device->getId());
             }
             if ($device) {
                 $response = new Response($device->getData(), 200);

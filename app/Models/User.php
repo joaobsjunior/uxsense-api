@@ -4,14 +4,18 @@ namespace App\Models;
 
 class User {
 
-    private $id, $name, $login, $password, $token;
+    private $id, $name, $login, $password, $token, $plainPassword;
 
+    /**
+     * @param array $data
+     * @param bool  $isCrypt  true when $data['password'] already is a stored hash
+     */
     public function __construct($data = [], $isCrypt = false) {
-        $this->id = @$data['id'];
-        $this->name = @$data['name'];
-        $this->login = @$data['login'];
-        $this->password = (!$isCrypt) ? sha1(md5(@$data['password'])) : @$data['password'];
-        $this->token = @$data['token'];
+        $this->id = $data['id'] ?? null;
+        $this->name = $data['name'] ?? null;
+        $this->login = $data['login'] ?? null;
+        $this->token = $data['token'] ?? null;
+        $this->setPassword($data['password'] ?? null, $isCrypt);
     }
 
     /* GETS */
@@ -24,8 +28,18 @@ class User {
         return $this->login;
     }
 
+    /**
+     * The stored (hashed) password.
+     */
     public function getPassword() {
         return $this->password;
+    }
+
+    /**
+     * The plain text password supplied by the request, if any.
+     */
+    public function getPlainPassword() {
+        return $this->plainPassword;
     }
 
     public function getId() {
@@ -53,7 +67,7 @@ class User {
             'password' => $this->getPassword()
         ];
     }
-    
+
     public function getDataDB() {
         return [
             'name' => $this->getName(),
@@ -74,7 +88,16 @@ class User {
     }
 
     public function setPassword($password, $isCrypt = false) {
-        $this->password = (!$isCrypt) ? sha1(md5($password)) : $password;
+        if ($isCrypt) {
+            $this->password = $password;
+            $this->plainPassword = null;
+        } elseif ($password === null || $password === '') {
+            $this->password = null;
+            $this->plainPassword = null;
+        } else {
+            $this->plainPassword = (string) $password;
+            $this->password = Helpers::hashPassword($password);
+        }
     }
 
     public function setId($id) {

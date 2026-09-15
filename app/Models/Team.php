@@ -43,8 +43,8 @@ class Team {
         return [
             'id' => $this->getId(),
             'name' => $this->getName(),
-            'unit' => $this->getUnit()->getData(),
-            'subgroup' => $this->getSubgroup()->getData(),
+            'unit' => $this->getUnit() ? $this->getUnit()->getData() : null,
+            'subgroup' => $this->getSubgroup() ? $this->getSubgroup()->getData() : null,
             'unit_id' => $this->getUnitId(),
             'subgroup_id' => $this->getSubgroupId(),
         ];

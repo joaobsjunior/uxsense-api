@@ -2,25 +2,31 @@
 
 namespace App\Models;
 
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class UserBO
 {
+    /**
+     * Number of days an invitation / password recovery token stays valid.
+     */
+    public const TOKEN_TTL_DAYS = 3;
 
     public static function authenticate(User $user)
     {
-        $_user = DB::table('administrator')->where([
-            ['login', $user->getLogin()],
-            ['password', $user->getPassword()],
-        ])->first();
-        if ($_user) {
+        $_user = DB::table('administrator')->where('login', $user->getLogin())->first();
+        if ($_user && Helpers::verifyPassword($user->getPlainPassword(), $_user->password)) {
             $user->setId($_user->idadministrator);
             $user->setName($_user->name);
-            $token = md5(uniqid(rand(), true));
-            $user->setToken($token);
+            $user->setToken(Helpers::token(32));
+            $update = ['token' => $user->getToken()];
+            if (Helpers::passwordNeedsRehash($_user->password)) {
+                // Transparently upgrade legacy sha1(md5()) hashes to bcrypt.
+                $update['password'] = Helpers::hashPassword($user->getPlainPassword());
+            }
             $data = DB::table('administrator')
                 ->where('idadministrator', $user->getId())
-                ->update(['token' => $user->getToken()]);
+                ->update($update);
             if ($data) {
                 return $user;
             }
@@ -47,31 +53,22 @@ class UserBO
         $callback = DB::table('administrator')->insertGetId($data);
         if ($callback) {
             $user->setId($callback);
-            $token = sha1(md5(uniqid($user->getLogin())));
-            DB::raw('delete from `manager_password` where `date` <= TIMESTAMP(DATE_SUB(NOW(), INTERVAL 3 DAY)) or `idadministrator` = ' . $user->getId());
+            $token = self::issuePasswordToken($user->getId());
             DB::table('administrator_group')->insert([
                 'idadministrator' => $user->getId(),
                 'idgroup' => $group_id,
             ]);
-            DB::table('manager_password')->insert([
-                'token' => $token,
-                'idadministrator' => $user->getId(),
-            ]);
             $email = new Mail();
             return $email->sendCodeChangePassword($user->getLogin(), $token, $user->getName(), "Convite para UXSense");
         }
+        return Mail::returnData(false, false, "userNotCreated", true);
     }
 
     public static function lostPassword($login)
     {
         $user = DB::table('administrator')->where('login', $login)->first();
         if ($user) {
-            $token = sha1(md5(uniqid($user->login)));
-            DB::raw('delete from `manager_password` where `date` <= TIMESTAMP(DATE_SUB(NOW(), INTERVAL 3 DAY)) or `idadministrator` = ' . $user->idadministrator);
-            DB::table('manager_password')->insert([
-                'token' => $token,
-                'idadministrator' => $user->idadministrator,
-            ]);
+            $token = self::issuePasswordToken($user->idadministrator);
             $email = new Mail();
             return $email->sendCodeChangePassword($user->login, $token, $user->name, "Recuperação de Senha");
         }
@@ -80,11 +77,20 @@ class UserBO
 
     public static function firstAccess($token, $password)
     {
+        if (!is_string($token) || $token === '' || !is_string($password) || $password === '') {
+            return false;
+        }
         $data = DB::table('manager_password')->where('token', $token)->first();
         if ($data) {
+            if (self::tokenExpired($data)) {
+                DB::table('manager_password')->where('token', $token)->delete();
+                return false;
+            }
             $user = new User();
             $user->setPassword($password);
-            $return = DB::table('administrator')->where('idadministrator', $data->idadministrator)->update(['password' => $user->getPassword()]);
+            $return = DB::table('administrator')
+                ->where('idadministrator', $data->idadministrator)
+                ->update(['password' => $user->getPassword()]);
             if ($return) {
                 DB::table('manager_password')
                     ->where('idadministrator', $data->idadministrator)
@@ -119,6 +125,34 @@ class UserBO
             ], true));
         }
         return false;
+    }
+
+    /**
+     * Create a fresh single-use token for the administrator, replacing any
+     * previous one (the old code built this DELETE by string concatenation
+     * and never executed it).
+     */
+    private static function issuePasswordToken($idadministrator)
+    {
+        $token = Helpers::token(40);
+        DB::table('manager_password')->where('idadministrator', $idadministrator)->delete();
+        DB::table('manager_password')->insert([
+            'token' => $token,
+            'idadministrator' => $idadministrator,
+        ]);
+        return $token;
+    }
+
+    private static function tokenExpired($row)
+    {
+        if (!isset($row->date) || $row->date === null || $row->date === '') {
+            return false;
+        }
+        try {
+            return Carbon::parse($row->date)->lt(Carbon::now()->subDays(self::TOKEN_TTL_DAYS));
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 
 }

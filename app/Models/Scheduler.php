@@ -58,9 +58,9 @@ class Scheduler {
             'id' => $this->id,
             'date' => $this->date,
             'time' => $this->time,
-            'question' => $this->question->getData(),
-            'team' => $this->team->getData(),
-            'technique' => $this->technique->getData()
+            'question' => $this->question ? $this->question->getData() : null,
+            'team' => $this->team ? $this->team->getData() : null,
+            'technique' => $this->technique ? $this->technique->getData() : null
         ];
     }
 
